@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2025-12-07
+
+### Changed
+- **Token-based pagination for `search_log_file`**: Now uses `max_tokens` (default: 4000) instead of `max_matches` for pagination
+- `max_matches` parameter deprecated but still supported for backward compatibility
+- Search results now show mode (token-based vs match-based) and estimated token count
+- Improved pagination to respect AI context limits by estimating tokens for each match with its context
+
+### Rationale
+- Search results can be large when matches include context lines
+- Token-based pagination provides more predictable memory usage for AI assistants
+- Consistent with `read_log_paginated` pagination strategy
+- Better user experience by avoiding context limit issues
+
 ## [0.2.5] - 2025-12-07
 
 ### Added

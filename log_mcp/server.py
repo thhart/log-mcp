@@ -200,7 +200,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_log_file",
-            description="Searches a log file using regex pattern and returns matching lines with surrounding context. Supports pagination of results.",
+            description="Searches a log file using regex pattern and returns matching lines with surrounding context. Supports token-based pagination to respect AI context limits.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -230,10 +230,14 @@ async def list_tools() -> list[Tool]:
                         "description": "Whether the search should be case-sensitive (default: false)",
                         "default": False
                     },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation. When specified, overrides max_matches.",
+                        "default": 4000
+                    },
                     "max_matches": {
                         "type": "integer",
-                        "description": "Maximum number of matches to return (default: 50, max: 500)",
-                        "default": 50
+                        "description": "DEPRECATED: Use max_tokens instead. Maximum number of matches to return (max: 500). If specified, overrides max_tokens."
                     },
                     "skip_matches": {
                         "type": "integer",
@@ -499,7 +503,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         context_before = arguments.get("context_before")
         context_after = arguments.get("context_after")
         case_sensitive = arguments.get("case_sensitive", False)
-        max_matches = arguments.get("max_matches", 50)
+        max_tokens = arguments.get("max_tokens", 4000)
+        max_matches = arguments.get("max_matches")  # Optional, for backward compatibility
         skip_matches = arguments.get("skip_matches", 0)
 
         if not filename:
@@ -534,11 +539,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 text="Error: context_after must be between 0 and 10"
             )]
 
-        if max_matches < 1 or max_matches > 500:
-            return [TextContent(
-                type="text",
-                text="Error: max_matches must be between 1 and 500"
-            )]
+        # Backward compatibility: if max_matches specified, use match-based mode
+        use_match_mode = max_matches is not None
+
+        if use_match_mode:
+            if max_matches < 1 or max_matches > 500:
+                return [TextContent(
+                    type="text",
+                    text="Error: max_matches must be between 1 and 500"
+                )]
+        else:
+            if max_tokens < 1 or max_tokens > 100000:
+                return [TextContent(
+                    type="text",
+                    text="Error: max_tokens must be between 1 and 100000"
+                )]
 
         if skip_matches < 0:
             return [TextContent(
@@ -595,15 +610,51 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         text=f"No matches found for pattern: {pattern}"
                     )]
 
-                # Apply pagination
-                paginated_matches = matches[skip_matches:skip_matches + max_matches]
+                # Skip matches based on skip_matches parameter
+                matches_to_process = matches[skip_matches:]
 
-                if not paginated_matches:
+                if not matches_to_process:
                     return [TextContent(
                         type="text",
                         text=f"No more matches (total: {total_matches}, skipped: {skip_matches})"
                     )]
 
+                # Collect matches based on mode (token-based or match-based)
+                paginated_matches = []
+                estimated_tokens = 0
+
+                if use_match_mode:
+                    # Match-based mode (backward compatibility)
+                    paginated_matches = matches_to_process[:max_matches]
+                    mode_info = f"Match-based mode: {len(paginated_matches)} matches"
+                else:
+                    # Token-based mode (default)
+                    # Estimate tokens for each match with its context
+                    for match_idx in matches_to_process:
+                        # Calculate context range
+                        start = max(0, match_idx - context_before)
+                        end = min(total_lines, match_idx + context_after + 1)
+
+                        # Estimate tokens for this match and its context
+                        match_text = ""
+                        for i in range(start, end):
+                            line_num = i + 1
+                            marker = ">>>" if i == match_idx else "   "
+                            match_text += f"{marker} {line_num:6d} | {lines[i]}"
+                        match_text += f"\n{'-' * 60}\n\n"
+
+                        match_tokens = len(match_text) // 4  # Rough estimation: 4 chars per token
+
+                        # Always include at least one match
+                        if not paginated_matches or estimated_tokens + match_tokens <= max_tokens:
+                            paginated_matches.append(match_idx)
+                            estimated_tokens += match_tokens
+                        else:
+                            break
+
+                    mode_info = f"Token-based mode: ~{estimated_tokens} tokens (~{max_tokens} max)"
+
+                # Build result
                 result = f"File: {log_file}\n"
                 result += f"Pattern: {pattern}\n"
                 result += f"Total matches: {total_matches}\n"
@@ -612,6 +663,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     result += f"Context lines: {context_before}\n"
                 else:
                     result += f"Context: {context_before} before, {context_after} after\n"
+                result += f"Mode: {mode_info}\n"
                 result += f"\n{'=' * 60}\n\n"
 
                 for match_idx in paginated_matches:
@@ -629,7 +681,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
                 if skip_matches + len(paginated_matches) < total_matches:
                     remaining = total_matches - (skip_matches + len(paginated_matches))
-                    result += f"... {remaining} more matches available (use skip_matches={skip_matches + len(paginated_matches)}) ..."
+                    result += f"... {remaining} more matches available ...\n"
+                    result += f"\nFor next call, use: skip_matches={skip_matches + len(paginated_matches)}"
 
                 return [TextContent(type="text", text=result)]
 
