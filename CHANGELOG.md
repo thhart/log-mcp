@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] - 2025-12-07
+
+### Changed
+- Package renamed to log-inspector-mcp for PyPI compatibility
+- Updated GitHub repository URL in package metadata
+- Documentation improvements for configuration examples
+
 ## [0.2.1] - 2025-12-07
 
 ### Changed
