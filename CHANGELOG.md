@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.0] - 2025-12-07
+## [0.4.0] - 2025-12-07
 
 ### Changed
 - **Token-based pagination for `search_log_file`**: Now uses `max_tokens` (default: 4000) instead of `max_matches` for pagination
