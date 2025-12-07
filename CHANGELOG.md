@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.5] - 2025-12-07
+
+### Added
+- File modification tracking for `read_log_paginated`
+- `expected_size` and `expected_mtime` parameters to detect file changes during pagination
+- Automatic warnings when log files are modified between pagination calls
+- File metadata (size, mtime) included in all responses
+- Helpful "For next call, use:" message with correct parameters
+
+### Fixed
+- Race condition when reading actively-written log files
+- Inconsistent line numbers when files are modified during pagination
+
+### Rationale
+- Log files are often actively written to during debugging
+- File changes between pagination calls cause line number shifts
+- Detecting changes allows AI to restart from beginning or warn user
+- Provides visibility into file state for better debugging
+
 ## [0.2.4] - 2025-12-07
 
 ### Changed

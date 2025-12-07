@@ -164,7 +164,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="read_log_paginated",
-            description="Reads a paginated portion of a log file. Useful for large log files. Uses token-based pagination to respect AI context limits.",
+            description="Reads a paginated portion of a log file. Useful for large log files. Uses token-based pagination to respect AI context limits. Tracks file modifications to detect changes between pagination calls.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -185,6 +185,14 @@ async def list_tools() -> list[Tool]:
                     "num_lines": {
                         "type": "integer",
                         "description": "DEPRECATED: Use max_tokens instead. Maximum number of lines (max: 1000). If specified, overrides max_tokens."
+                    },
+                    "expected_size": {
+                        "type": "integer",
+                        "description": "Expected file size in bytes (from previous call). If file size changed, returns a warning."
+                    },
+                    "expected_mtime": {
+                        "type": "number",
+                        "description": "Expected modification time timestamp (from previous call). If file was modified, returns a warning."
                     }
                 },
                 "required": ["filename"]
@@ -337,6 +345,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         start_line = arguments.get("start_line", 1)
         max_tokens = arguments.get("max_tokens", 4000)
         num_lines = arguments.get("num_lines")  # Optional, for backward compatibility
+        expected_size = arguments.get("expected_size")
+        expected_mtime = arguments.get("expected_mtime")
 
         if not filename:
             return [TextContent(
@@ -387,6 +397,33 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 text=f"Path exists but is not a file: {log_file}"
             )]
 
+        # Get file metadata for change detection
+        try:
+            file_stat = log_file.stat()
+            file_size = file_stat.st_size
+            file_mtime = file_stat.st_mtime
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error getting file stats: {e}"
+            )]
+
+        # Check if file changed since last read
+        warnings = []
+        if expected_size is not None and expected_size != file_size:
+            size_diff = file_size - expected_size
+            warnings.append(
+                f"⚠️  FILE SIZE CHANGED: Expected {expected_size} bytes, now {file_size} bytes "
+                f"({'+' if size_diff > 0 else ''}{size_diff} bytes). "
+                f"File was modified during pagination - line numbers may be inconsistent!"
+            )
+
+        if expected_mtime is not None and abs(expected_mtime - file_mtime) > 0.001:
+            warnings.append(
+                f"⚠️  FILE MODIFIED: Modification time changed. "
+                f"File was modified during pagination - line numbers may be inconsistent!"
+            )
+
         try:
             with open(log_file, 'r') as f:
                 # Read all lines to count total
@@ -420,7 +457,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     end_line = start_line - 1 + len(lines)
                     mode_info = f"Token-based mode: ~{estimated_tokens} tokens (~{max_tokens} max)"
 
-                result = f"File: {log_file}\n"
+                # Build result with file metadata
+                result = ""
+
+                # Show warnings first if any
+                if warnings:
+                    result += "\n".join(warnings) + "\n\n"
+
+                result += f"File: {log_file}\n"
+                result += f"File size: {file_size} bytes\n"
+                result += f"File mtime: {file_mtime}\n"
                 result += f"Total lines: {total_lines}\n"
                 result += f"Showing lines {start_line}-{start_line - 1 + len(lines)} ({len(lines)} lines)\n"
                 result += f"Mode: {mode_info}\n"
@@ -430,7 +476,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     result += f"{i:6d} | {line}"
 
                 if end_line < total_lines:
-                    result += f"\n\n... {total_lines - end_line} more lines available (continue from line {end_line + 1}) ..."
+                    result += f"\n\n... {total_lines - end_line} more lines available (continue from line {end_line + 1}) ...\n"
+                    result += f"\nFor next call, use: start_line={end_line + 1}, expected_size={file_size}, expected_mtime={file_mtime}"
 
                 return [TextContent(type="text", text=result)]
 

@@ -185,23 +185,30 @@ Reads and returns the complete content of a specific log file.
 
 ### read_log_paginated
 
-Reads a specific portion of a log file with token-based pagination to respect AI context limits.
+Reads a specific portion of a log file with token-based pagination to respect AI context limits. Tracks file modifications to detect changes during pagination.
 
 **Parameters**:
 - `filename` (string, required): Name of the log file to read
 - `start_line` (integer, optional): Starting line number (1-based, default: 1)
 - `max_tokens` (integer, optional): Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation.
+- `expected_size` (integer, optional): Expected file size in bytes (from previous call). Warns if file changed.
+- `expected_mtime` (number, optional): Expected modification timestamp (from previous call). Warns if file was modified.
 - `num_lines` (integer, optional): **DEPRECATED** - Maximum number of lines (max: 1000). If specified, overrides max_tokens for backward compatibility.
 
-**Returns**: Lines with line numbers, stopping when token limit is reached
+**Returns**: Lines with line numbers, file metadata (size, mtime), and warnings if file changed during pagination
 
 **When to use**: For large log files where you need to read specific sections without exceeding context limits
 
 **Examples**:
-- Read from start with default 4000 token limit: `start_line=1`
+- Read from start: `start_line=1`
 - Read 10000 tokens from line 500: `start_line=500, max_tokens=10000`
-- Continue reading from where previous call ended: `start_line=<end_line + 1>`
-- Legacy line-based mode: `start_line=1, num_lines=100`
+- Continue with change detection: `start_line=1234, expected_size=5678910, expected_mtime=1234567890.123`
+
+**File Modification Detection**:
+- Each response includes `file_size` and `file_mtime`
+- Use these values in the next call as `expected_size` and `expected_mtime`
+- If the file changed, you'll get a warning: "⚠️ FILE SIZE CHANGED" or "⚠️ FILE MODIFIED"
+- This helps detect when log files are actively being written to
 
 **Why token-based?** Log lines vary drastically in length. Token-based pagination ensures consistent AI context usage regardless of line length.
 
