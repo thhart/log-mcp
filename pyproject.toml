@@ -1,0 +1,27 @@
+[project]
+name = "log-mcp"
+version = "0.2.0"
+description = "MCP server for inspecting log files in XDG_RUNTIME_DIR/log"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Thomas Hartwig", email = "thomas.hartwig@gmail.com"}
+]
+dependencies = [
+    "mcp>=1.0.0",
+]
+requires-python = ">=3.10"
+
+[project.scripts]
+log-mcp = "log_mcp.server:run"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/log-mcp"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["log_mcp*"]
