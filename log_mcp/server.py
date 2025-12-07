@@ -164,7 +164,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="read_log_paginated",
-            description="Reads a paginated portion of a log file. Useful for large log files. Returns specific line ranges.",
+            description="Reads a paginated portion of a log file. Useful for large log files. Uses token-based pagination to respect AI context limits.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -177,10 +177,14 @@ async def list_tools() -> list[Tool]:
                         "description": "Starting line number (1-based, default: 1)",
                         "default": 1
                     },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation.",
+                        "default": 4000
+                    },
                     "num_lines": {
                         "type": "integer",
-                        "description": "Number of lines to read (default: 100, max: 1000)",
-                        "default": 100
+                        "description": "DEPRECATED: Use max_tokens instead. Maximum number of lines (max: 1000). If specified, overrides max_tokens."
                     }
                 },
                 "required": ["filename"]
@@ -331,7 +335,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     elif name == "read_log_paginated":
         filename = arguments.get("filename")
         start_line = arguments.get("start_line", 1)
-        num_lines = arguments.get("num_lines", 100)
+        max_tokens = arguments.get("max_tokens", 4000)
+        num_lines = arguments.get("num_lines")  # Optional, for backward compatibility
 
         if not filename:
             return [TextContent(
@@ -346,11 +351,21 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 text="Error: start_line must be >= 1"
             )]
 
-        if num_lines < 1 or num_lines > 1000:
-            return [TextContent(
-                type="text",
-                text="Error: num_lines must be between 1 and 1000"
-            )]
+        # Backward compatibility: if num_lines specified, use line-based mode
+        use_line_mode = num_lines is not None
+
+        if use_line_mode:
+            if num_lines < 1 or num_lines > 1000:
+                return [TextContent(
+                    type="text",
+                    text="Error: num_lines must be between 1 and 1000"
+                )]
+        else:
+            if max_tokens < 1 or max_tokens > 100000:
+                return [TextContent(
+                    type="text",
+                    text="Error: max_tokens must be between 1 and 100000"
+                )]
 
         try:
             log_dir, log_file = resolve_log_file(filename)
@@ -378,20 +393,44 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 all_lines = f.readlines()
                 total_lines = len(all_lines)
 
-                # Calculate the slice
-                end_line = min(start_line - 1 + num_lines, total_lines)
-                lines = all_lines[start_line - 1:end_line]
+                if use_line_mode:
+                    # Line-based mode (backward compatibility)
+                    end_line = min(start_line - 1 + num_lines, total_lines)
+                    lines = all_lines[start_line - 1:end_line]
+                    mode_info = f"Line-based mode: {num_lines} lines"
+                else:
+                    # Token-based mode (default)
+                    # Estimate ~4 chars per token
+                    lines = []
+                    estimated_tokens = 0
+                    current_idx = start_line - 1
+
+                    while current_idx < total_lines and estimated_tokens < max_tokens:
+                        line = all_lines[current_idx]
+                        line_tokens = len(line) // 4  # Rough estimation: 4 chars per token
+
+                        # Always include at least one line
+                        if lines or estimated_tokens + line_tokens <= max_tokens:
+                            lines.append(line)
+                            estimated_tokens += line_tokens
+                            current_idx += 1
+                        else:
+                            break
+
+                    end_line = start_line - 1 + len(lines)
+                    mode_info = f"Token-based mode: ~{estimated_tokens} tokens (~{max_tokens} max)"
 
                 result = f"File: {log_file}\n"
                 result += f"Total lines: {total_lines}\n"
-                result += f"Showing lines {start_line}-{start_line - 1 + len(lines)}\n"
+                result += f"Showing lines {start_line}-{start_line - 1 + len(lines)} ({len(lines)} lines)\n"
+                result += f"Mode: {mode_info}\n"
                 result += f"\n{'=' * 60}\n\n"
 
                 for i, line in enumerate(lines, start=start_line):
                     result += f"{i:6d} | {line}"
 
                 if end_line < total_lines:
-                    result += f"\n\n... {total_lines - end_line} more lines available ..."
+                    result += f"\n\n... {total_lines - end_line} more lines available (continue from line {end_line + 1}) ..."
 
                 return [TextContent(type="text", text=result)]
 

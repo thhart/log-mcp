@@ -185,18 +185,25 @@ Reads and returns the complete content of a specific log file.
 
 ### read_log_paginated
 
-Reads a specific portion of a log file with pagination support.
+Reads a specific portion of a log file with token-based pagination to respect AI context limits.
 
 **Parameters**:
 - `filename` (string, required): Name of the log file to read
 - `start_line` (integer, optional): Starting line number (1-based, default: 1)
-- `num_lines` (integer, optional): Number of lines to read (default: 100, max: 1000)
+- `max_tokens` (integer, optional): Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation.
+- `num_lines` (integer, optional): **DEPRECATED** - Maximum number of lines (max: 1000). If specified, overrides max_tokens for backward compatibility.
 
-**Returns**: Specified range of lines with line numbers
+**Returns**: Lines with line numbers, stopping when token limit is reached
 
-**When to use**: For large log files where you need to read specific sections
+**When to use**: For large log files where you need to read specific sections without exceeding context limits
 
-**Example**: Read lines 1000-1100 from a large log file
+**Examples**:
+- Read from start with default 4000 token limit: `start_line=1`
+- Read 10000 tokens from line 500: `start_line=500, max_tokens=10000`
+- Continue reading from where previous call ended: `start_line=<end_line + 1>`
+- Legacy line-based mode: `start_line=1, num_lines=100`
+
+**Why token-based?** Log lines vary drastically in length. Token-based pagination ensures consistent AI context usage regardless of line length.
 
 ### search_log_file
 

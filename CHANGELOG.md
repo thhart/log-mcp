@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.4] - 2025-12-07
+
+### Changed
+- **BREAKING (but backward compatible)**: `read_log_paginated` now uses token-based pagination instead of line-based
+- Default pagination is now `max_tokens=4000` instead of `num_lines=100`
+- Uses ~4 characters per token estimation for consistent context usage
+- `num_lines` parameter deprecated but still supported for backward compatibility
+- Output now shows mode (token-based vs line-based) and estimated token count
+
+### Rationale
+- Log lines vary drastically in length (10-10000+ characters)
+- Token limits matter for AI context windows, not line counts
+- Provides more predictable and useful pagination for AI assistants
+
 ## [0.2.3] - 2025-12-07
 
 ### Added
