@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.3] - 2025-12-07
+
+### Added
+- `context_before` and `context_after` parameters for `search_log_file` tool
+- Separate control of context lines before and after matches (like grep's -B and -A options)
+- Support for asymmetric context display (e.g., 5 lines before, 2 lines after)
+
+### Changed
+- `context_lines` now serves as default for both before and after context
+- Context display in search results shows separate before/after counts when different
+
 ## [0.2.2] - 2025-12-07
 
 ### Changed

@@ -206,6 +206,8 @@ Searches a log file using regex patterns and returns matching lines with surroun
 - `filename` (string, required): Name of the log file to search
 - `pattern` (string, required): Regex pattern to search for
 - `context_lines` (integer, optional): Lines to show before/after each match (default: 2, max: 10)
+- `context_before` (integer, optional): Lines to show before each match (max: 10). Overrides `context_lines` for before-context.
+- `context_after` (integer, optional): Lines to show after each match (max: 10). Overrides `context_lines` for after-context.
 - `case_sensitive` (boolean, optional): Case-sensitive search (default: false)
 - `max_matches` (integer, optional): Maximum matches to return (default: 50, max: 500)
 - `skip_matches` (integer, optional): Number of matches to skip for pagination (default: 0)
@@ -214,7 +216,10 @@ Searches a log file using regex patterns and returns matching lines with surroun
 
 **When to use**: Searching for specific errors, patterns, or events in log files
 
-**Example**: Search for all "ERROR" entries with 3 lines of context
+**Examples**:
+- Search for all "ERROR" entries with 3 lines of context: `context_lines=3`
+- Show 5 lines before and 2 after each match: `context_before=5, context_after=2`
+- Show only lines after the match: `context_before=0, context_after=5`
 
 ## Prompts
 

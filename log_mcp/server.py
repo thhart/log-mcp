@@ -202,8 +202,16 @@ async def list_tools() -> list[Tool]:
                     },
                     "context_lines": {
                         "type": "integer",
-                        "description": "Number of lines to show before and after each match (default: 2, max: 10)",
+                        "description": "Number of lines to show before and after each match (default: 2, max: 10). Overridden by context_before/context_after if specified.",
                         "default": 2
+                    },
+                    "context_before": {
+                        "type": "integer",
+                        "description": "Number of lines to show before each match (max: 10). Overrides context_lines for before-context."
+                    },
+                    "context_after": {
+                        "type": "integer",
+                        "description": "Number of lines to show after each match (max: 10). Overrides context_lines for after-context."
                     },
                     "case_sensitive": {
                         "type": "boolean",
@@ -402,6 +410,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         filename = arguments.get("filename")
         pattern = arguments.get("pattern")
         context_lines = arguments.get("context_lines", 2)
+        context_before = arguments.get("context_before")
+        context_after = arguments.get("context_after")
         case_sensitive = arguments.get("case_sensitive", False)
         max_matches = arguments.get("max_matches", 50)
         skip_matches = arguments.get("skip_matches", 0)
@@ -418,11 +428,24 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 text="Error: pattern parameter is required"
             )]
 
+        # Determine actual context values
+        # context_before/context_after override context_lines if specified
+        if context_before is None:
+            context_before = context_lines
+        if context_after is None:
+            context_after = context_lines
+
         # Validate parameters
-        if context_lines < 0 or context_lines > 10:
+        if context_before < 0 or context_before > 10:
             return [TextContent(
                 type="text",
-                text="Error: context_lines must be between 0 and 10"
+                text="Error: context_before must be between 0 and 10"
+            )]
+
+        if context_after < 0 or context_after > 10:
+            return [TextContent(
+                type="text",
+                text="Error: context_after must be between 0 and 10"
             )]
 
         if max_matches < 1 or max_matches > 500:
@@ -499,13 +522,16 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result += f"Pattern: {pattern}\n"
                 result += f"Total matches: {total_matches}\n"
                 result += f"Showing matches {skip_matches + 1}-{skip_matches + len(paginated_matches)}\n"
-                result += f"Context lines: {context_lines}\n"
+                if context_before == context_after:
+                    result += f"Context lines: {context_before}\n"
+                else:
+                    result += f"Context: {context_before} before, {context_after} after\n"
                 result += f"\n{'=' * 60}\n\n"
 
                 for match_idx in paginated_matches:
                     # Calculate context range
-                    start = max(0, match_idx - context_lines)
-                    end = min(total_lines, match_idx + context_lines + 1)
+                    start = max(0, match_idx - context_before)
+                    end = min(total_lines, match_idx + context_after + 1)
 
                     # Show context
                     for i in range(start, end):

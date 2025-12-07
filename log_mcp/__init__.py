@@ -1,6 +1,6 @@
 """Log MCP Server - Inspect log files in XDG_RUNTIME_DIR/log."""
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 from .server import main
 
