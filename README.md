@@ -42,7 +42,7 @@ pip install -e .
 ### From PyPI (when published)
 
 ```bash
-pip install log-mcp
+pip install log-inspector-mcp
 ```
 
 ## Usage
