@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1] - 2025-12-07
+
+### Changed
+- Updated package metadata with author information
+- Minor documentation improvements
+
 ## [0.2.0] - 2025-12-07
 
 ### Added
