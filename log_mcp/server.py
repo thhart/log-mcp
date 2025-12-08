@@ -157,6 +157,11 @@ async def list_tools() -> list[Tool]:
                     "filename": {
                         "type": "string",
                         "description": "Name of the log file to read"
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation.",
+                        "default": 4000
                     }
                 },
                 "required": ["filename"]
@@ -301,6 +306,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
     elif name == "get_log_content":
         filename = arguments.get("filename")
+        max_tokens = min(arguments.get("max_tokens", 4000), 100000)
+
         if not filename:
             return [TextContent(
                 type="text",
@@ -329,10 +336,28 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         try:
             content = log_file.read_text()
-            return [TextContent(
-                type="text",
-                text=f"Content of {log_file}:\n\n{content}"
-            )]
+            file_size = log_file.stat().st_size
+            total_tokens = len(content) // 4
+
+            if total_tokens <= max_tokens:
+                return [TextContent(
+                    type="text",
+                    text=f"Content of {log_file} ({file_size} bytes, ~{total_tokens} tokens):\n\n{content}"
+                )]
+            else:
+                # Truncate to max_tokens
+                max_chars = max_tokens * 4
+                truncated_content = content[:max_chars]
+                # Try to break at a newline for cleaner output
+                last_newline = truncated_content.rfind('\n')
+                if last_newline > max_chars * 0.8:  # Only break at newline if we keep >80% of content
+                    truncated_content = truncated_content[:last_newline]
+
+                actual_tokens = len(truncated_content) // 4
+                return [TextContent(
+                    type="text",
+                    text=f"Content of {log_file} (TRUNCATED: showing ~{actual_tokens} of ~{total_tokens} tokens, {file_size} bytes total):\n\n{truncated_content}\n\n---\n[OUTPUT TRUNCATED - Use read_log_paginated for full access to large files]"
+                )]
         except PermissionError:
             return [TextContent(
                 type="text",

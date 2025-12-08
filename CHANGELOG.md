@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2025-12-08
+
+### Added
+- **Token-based pagination for `get_log_content`**: Now uses `max_tokens` (default: 4000, max: 100000) to limit output
+- Automatic truncation with guidance to use `read_log_paginated` for large files
+- File size and token count shown in output header
+
+### Rationale
+- Previously `get_log_content` returned entire file without limits
+- Large files could overwhelm AI context windows
+- Consistent token-based approach across all tools
+
 ## [0.4.0] - 2025-12-07
 
 ### Changed
