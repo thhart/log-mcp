@@ -326,6 +326,35 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["filename"]
             }
+        ),
+        Tool(
+            name="find_errors",
+            description="Quickly finds error lines in a log file by matching common error patterns (ERROR, Exception, FATAL, Failed, Traceback, panic, etc.). Ideal for quick diagnostics.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the log file to search"
+                    },
+                    "context_lines": {
+                        "type": "integer",
+                        "description": "Number of lines to show before and after each error (default: 2, max: 10)",
+                        "default": 2
+                    },
+                    "include_warnings": {
+                        "type": "boolean",
+                        "description": "Also include warning-level messages (default: false)",
+                        "default": False
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation.",
+                        "default": 4000
+                    }
+                },
+                "required": ["filename"]
+            }
         )
     ]
 
@@ -1073,6 +1102,158 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(
                 type="text",
                 text=f"Error reading file: {e}"
+            )]
+
+    elif name == "find_errors":
+        filename = arguments.get("filename")
+        context_lines = min(arguments.get("context_lines", 2), 10)
+        include_warnings = arguments.get("include_warnings", False)
+        max_tokens = min(arguments.get("max_tokens", 4000), 100000)
+
+        if not filename:
+            return [TextContent(
+                type="text",
+                text="Error: filename parameter is required"
+            )]
+
+        try:
+            log_dir, log_file = resolve_log_file(filename)
+        except ValueError as e:
+            return [TextContent(
+                type="text",
+                text=f"Error: {e}"
+            )]
+
+        if not log_file.exists():
+            return [TextContent(
+                type="text",
+                text=f"Log file does not exist: {log_file}"
+            )]
+
+        if not log_file.is_file():
+            return [TextContent(
+                type="text",
+                text=f"Path exists but is not a file: {log_file}"
+            )]
+
+        # Common error patterns in software development
+        error_patterns = [
+            # General error levels
+            r'\bERROR\b',
+            r'\bFATAL\b',
+            r'\bCRITICAL\b',
+            r'\bSEVERE\b',
+            # Exception patterns
+            r'\bException\b',
+            r'\bError:',
+            r'\bTraceback\b',
+            r'^\s*at\s+.*\(.*:\d+\)',  # Stack trace lines
+            r'^\s*File\s+".*",\s+line\s+\d+',  # Python traceback
+            # Failure patterns
+            r'\bFAIL(ED|URE)?\b',
+            r'\bfailed\b',
+            r'\bAborted\b',
+            # Language-specific
+            r'\bpanic\b',  # Go, Rust
+            r'\bNullPointerException\b',
+            r'\bSegmentation fault\b',
+            r'\bcore dumped\b',
+            r'\bOOM\b',  # Out of memory
+            r'\bOutOfMemory\b',
+            # HTTP errors
+            r'\b[45]\d{2}\s+(error|Error|ERROR)',
+            r'HTTP[/\s]+[12]\.[01]\s+[45]\d{2}',
+            # Exit codes
+            r'exit(ed)?\s+(with\s+)?(code|status)\s+[1-9]',
+            r'return(ed)?\s+(-?[1-9]\d*|non-?zero)',
+            # Assertions
+            r'\bAssertionError\b',
+            r'\bassertion\s+failed\b',
+        ]
+
+        if include_warnings:
+            error_patterns.extend([
+                r'\bWARN(ING)?\b',
+                r'\bwarn(ing)?\b',
+                r'\bCaution\b',
+                r'\bDeprecated\b',
+            ])
+
+        # Compile combined pattern (case-insensitive for some)
+        combined_pattern = '|'.join(f'({p})' for p in error_patterns)
+
+        try:
+            lines = log_file.read_text().splitlines(keepends=True)
+            file_size = log_file.stat().st_size
+            total_lines = len(lines)
+
+            # Find matching lines
+            error_indices = []
+            for idx, line in enumerate(lines):
+                if re.search(combined_pattern, line, re.IGNORECASE):
+                    error_indices.append(idx)
+
+            if not error_indices:
+                return [TextContent(
+                    type="text",
+                    text=f"No errors found in {log_file}\nFile size: {file_size} bytes, {total_lines} lines\nPatterns searched: ERROR, Exception, FATAL, Failed, Traceback, panic, etc." +
+                         ("\nNote: Warnings not included. Use include_warnings=true to include them." if not include_warnings else "")
+                )]
+
+            # Build output with context, respecting token limit
+            result = f"Errors in {log_file}\n"
+            result += f"File size: {file_size} bytes, {total_lines} lines\n"
+            result += f"Found {len(error_indices)} error lines" + (" (including warnings)" if include_warnings else "") + "\n"
+            result += f"Context: {context_lines} lines before/after\n"
+            result += f"\n{'=' * 60}\n\n"
+
+            estimated_tokens = len(result) // 4
+            shown_errors = 0
+            shown_indices = set()
+
+            for error_idx in error_indices:
+                # Calculate context range
+                start = max(0, error_idx - context_lines)
+                end = min(total_lines, error_idx + context_lines + 1)
+
+                # Build this error block
+                block = ""
+                for i in range(start, end):
+                    if i in shown_indices:
+                        continue  # Skip already shown lines
+                    line_num = i + 1
+                    marker = ">>>" if i == error_idx else "   "
+                    block += f"{marker} {line_num:6d} | {lines[i]}"
+                    shown_indices.add(i)
+
+                block += f"\n{'-' * 60}\n\n"
+                block_tokens = len(block) // 4
+
+                # Check token limit
+                if shown_errors > 0 and estimated_tokens + block_tokens > max_tokens:
+                    remaining = len(error_indices) - shown_errors
+                    result += f"... {remaining} more errors (token limit reached) ...\n"
+                    result += f"Use search_log_file with specific patterns for more details"
+                    break
+
+                result += block
+                estimated_tokens += block_tokens
+                shown_errors += 1
+
+            if shown_errors == len(error_indices):
+                result += f"[All {shown_errors} errors shown]\n"
+
+            return [TextContent(type="text", text=result)]
+
+        except PermissionError:
+            return [TextContent(
+                type="text",
+                text=f"Permission denied reading: {log_file}"
+            )]
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error searching file: {e}"
             )]
 
     else:

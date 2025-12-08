@@ -1,6 +1,6 @@
 [project]
 name = "log-inspector-mcp"
-version = "0.4.2"
+version = "0.4.4"
 description = "MCP server for inspecting log files in XDG_RUNTIME_DIR/log"
 readme = "README.md"
 license = "MIT"

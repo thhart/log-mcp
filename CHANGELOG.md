@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.4] - 2025-12-08
+
+### Added
+- **`find_errors` tool**: Quickly finds error lines by matching common error patterns
+  - Matches: ERROR, FATAL, CRITICAL, Exception, Traceback, Failed, panic, etc.
+  - `context_lines` parameter: lines to show before/after each error (default: 2)
+  - `include_warnings` parameter: also match WARNING patterns (default: false)
+  - `max_tokens` parameter: limit by token count (default: 4000)
+  - Shows line numbers with `>>>` markers for error lines
+
+### Rationale
+- AI assistants can quickly diagnose issues without reading entire log files
+- Common patterns cover most programming languages and frameworks
+- Token-based pagination ensures manageable output size
+
 ## [0.4.2] - 2025-12-08
 
 ### Added
