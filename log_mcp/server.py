@@ -252,6 +252,80 @@ async def list_tools() -> list[Tool]:
                 },
                 "required": ["filename", "pattern"]
             }
+        ),
+        Tool(
+            name="head_log",
+            description="Reads the beginning of a log file (like Unix 'head' command). Uses token-based pagination to respect AI context limits.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the log file to read"
+                    },
+                    "lines": {
+                        "type": "integer",
+                        "description": "Number of lines to read from the beginning. If not specified, uses token-based limit."
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation.",
+                        "default": 4000
+                    }
+                },
+                "required": ["filename"]
+            }
+        ),
+        Tool(
+            name="tail_log",
+            description="Reads the end of a log file (like Unix 'tail' command). Uses token-based pagination to respect AI context limits. Ideal for checking recent log entries.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the log file to read"
+                    },
+                    "lines": {
+                        "type": "integer",
+                        "description": "Number of lines to read from the end. If not specified, uses token-based limit."
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation.",
+                        "default": 4000
+                    }
+                },
+                "required": ["filename"]
+            }
+        ),
+        Tool(
+            name="read_log_range",
+            description="Reads a specific range of lines from a log file. Uses token-based pagination to respect AI context limits.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the log file to read"
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Starting line number (1-based, inclusive)",
+                        "default": 1
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Ending line number (1-based, inclusive). If not specified, reads to end of file or token limit."
+                    },
+                    "max_tokens": {
+                        "type": "integer",
+                        "description": "Maximum tokens to return (default: 4000, max: 100000). Uses ~4 chars per token estimation.",
+                        "default": 4000
+                    }
+                },
+                "required": ["filename"]
+            }
         )
     ]
 
@@ -720,6 +794,285 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             return [TextContent(
                 type="text",
                 text=f"Error searching file: {e}"
+            )]
+
+    elif name == "head_log":
+        filename = arguments.get("filename")
+        max_tokens = min(arguments.get("max_tokens", 4000), 100000)
+        num_lines = arguments.get("lines")  # Optional line limit
+
+        if not filename:
+            return [TextContent(
+                type="text",
+                text="Error: filename parameter is required"
+            )]
+
+        try:
+            log_dir, log_file = resolve_log_file(filename)
+        except ValueError as e:
+            return [TextContent(
+                type="text",
+                text=f"Error: {e}"
+            )]
+
+        if not log_file.exists():
+            return [TextContent(
+                type="text",
+                text=f"Log file does not exist: {log_file}"
+            )]
+
+        if not log_file.is_file():
+            return [TextContent(
+                type="text",
+                text=f"Path exists but is not a file: {log_file}"
+            )]
+
+        try:
+            all_lines = log_file.read_text().splitlines(keepends=True)
+            file_size = log_file.stat().st_size
+            total_lines = len(all_lines)
+
+            # Read lines from beginning
+            lines = []
+            estimated_tokens = 0
+            truncated_by = None
+
+            for idx, line in enumerate(all_lines):
+                # Check line limit first
+                if num_lines is not None and len(lines) >= num_lines:
+                    truncated_by = "lines"
+                    break
+                # Check token limit
+                line_tokens = len(line) // 4
+                if lines and estimated_tokens + line_tokens > max_tokens:
+                    truncated_by = "tokens"
+                    break
+                lines.append(line)
+                estimated_tokens += line_tokens
+
+            lines_read = len(lines)
+
+            result = f"Head of {log_file}\n"
+            result += f"File size: {file_size} bytes, {total_lines} lines total\n"
+            if num_lines is not None:
+                result += f"Showing: lines 1-{lines_read} (requested: {num_lines} lines, ~{estimated_tokens} tokens)\n"
+            else:
+                result += f"Showing: lines 1-{lines_read} (~{estimated_tokens} tokens)\n"
+            result += f"\n{'=' * 60}\n\n"
+
+            # Add line numbers
+            for i, line in enumerate(lines, 1):
+                result += f"{i:6d} | {line}"
+
+            if lines_read < total_lines:
+                result += f"\n{'=' * 60}\n"
+                result += f"... {total_lines - lines_read} more lines available ...\n"
+                result += f"Use read_log_range with start_line={lines_read + 1} to continue"
+
+            return [TextContent(type="text", text=result)]
+
+        except PermissionError:
+            return [TextContent(
+                type="text",
+                text=f"Permission denied reading: {log_file}"
+            )]
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error reading file: {e}"
+            )]
+
+    elif name == "tail_log":
+        filename = arguments.get("filename")
+        max_tokens = min(arguments.get("max_tokens", 4000), 100000)
+        num_lines = arguments.get("lines")  # Optional line limit
+
+        if not filename:
+            return [TextContent(
+                type="text",
+                text="Error: filename parameter is required"
+            )]
+
+        try:
+            log_dir, log_file = resolve_log_file(filename)
+        except ValueError as e:
+            return [TextContent(
+                type="text",
+                text=f"Error: {e}"
+            )]
+
+        if not log_file.exists():
+            return [TextContent(
+                type="text",
+                text=f"Log file does not exist: {log_file}"
+            )]
+
+        if not log_file.is_file():
+            return [TextContent(
+                type="text",
+                text=f"Path exists but is not a file: {log_file}"
+            )]
+
+        try:
+            all_lines = log_file.read_text().splitlines(keepends=True)
+            file_size = log_file.stat().st_size
+            total_lines = len(all_lines)
+
+            # Read lines from end
+            lines = []
+            estimated_tokens = 0
+
+            for line in reversed(all_lines):
+                # Check line limit first
+                if num_lines is not None and len(lines) >= num_lines:
+                    break
+                # Check token limit
+                line_tokens = len(line) // 4
+                if lines and estimated_tokens + line_tokens > max_tokens:
+                    break
+                lines.insert(0, line)
+                estimated_tokens += line_tokens
+
+            lines_read = len(lines)
+            start_line = total_lines - lines_read + 1
+
+            result = f"Tail of {log_file}\n"
+            result += f"File size: {file_size} bytes, {total_lines} lines total\n"
+            if num_lines is not None:
+                result += f"Showing: lines {start_line}-{total_lines} (requested: {num_lines} lines, ~{estimated_tokens} tokens)\n"
+            else:
+                result += f"Showing: lines {start_line}-{total_lines} (~{estimated_tokens} tokens)\n"
+            result += f"\n{'=' * 60}\n\n"
+
+            # Add line numbers
+            for i, line in enumerate(lines, start_line):
+                result += f"{i:6d} | {line}"
+
+            if lines_read < total_lines:
+                result += f"\n{'=' * 60}\n"
+                result += f"... {total_lines - lines_read} earlier lines available ...\n"
+                result += f"Use read_log_range or head_log to see earlier content"
+
+            return [TextContent(type="text", text=result)]
+
+        except PermissionError:
+            return [TextContent(
+                type="text",
+                text=f"Permission denied reading: {log_file}"
+            )]
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error reading file: {e}"
+            )]
+
+    elif name == "read_log_range":
+        filename = arguments.get("filename")
+        start_line = arguments.get("start_line", 1)
+        end_line = arguments.get("end_line")  # Optional, None means to end or token limit
+        max_tokens = min(arguments.get("max_tokens", 4000), 100000)
+
+        if not filename:
+            return [TextContent(
+                type="text",
+                text="Error: filename parameter is required"
+            )]
+
+        if start_line < 1:
+            return [TextContent(
+                type="text",
+                text="Error: start_line must be >= 1"
+            )]
+
+        if end_line is not None and end_line < start_line:
+            return [TextContent(
+                type="text",
+                text="Error: end_line must be >= start_line"
+            )]
+
+        try:
+            log_dir, log_file = resolve_log_file(filename)
+        except ValueError as e:
+            return [TextContent(
+                type="text",
+                text=f"Error: {e}"
+            )]
+
+        if not log_file.exists():
+            return [TextContent(
+                type="text",
+                text=f"Log file does not exist: {log_file}"
+            )]
+
+        if not log_file.is_file():
+            return [TextContent(
+                type="text",
+                text=f"Path exists but is not a file: {log_file}"
+            )]
+
+        try:
+            all_lines = log_file.read_text().splitlines(keepends=True)
+            file_size = log_file.stat().st_size
+            total_lines = len(all_lines)
+
+            if start_line > total_lines:
+                return [TextContent(
+                    type="text",
+                    text=f"Error: start_line {start_line} exceeds file length ({total_lines} lines)"
+                )]
+
+            # Determine effective end line
+            effective_end = end_line if end_line is not None else total_lines
+            effective_end = min(effective_end, total_lines)
+
+            # Read lines in range, respecting token limit
+            lines = []
+            estimated_tokens = 0
+            actual_end = start_line - 1  # Will be updated as we read
+
+            for idx in range(start_line - 1, effective_end):
+                line = all_lines[idx]
+                line_tokens = len(line) // 4
+                if lines and estimated_tokens + line_tokens > max_tokens:
+                    break
+                lines.append(line)
+                estimated_tokens += line_tokens
+                actual_end = idx + 1  # 1-based line number
+
+            lines_read = len(lines)
+
+            result = f"Range from {log_file}\n"
+            result += f"File size: {file_size} bytes, {total_lines} lines total\n"
+            if end_line is not None:
+                result += f"Requested: lines {start_line}-{end_line}\n"
+            result += f"Showing: lines {start_line}-{actual_end} (~{estimated_tokens} tokens)\n"
+            result += f"\n{'=' * 60}\n\n"
+
+            # Add line numbers
+            for i, line in enumerate(lines, start_line):
+                result += f"{i:6d} | {line}"
+
+            # Check if there's more content
+            if actual_end < total_lines:
+                result += f"\n{'=' * 60}\n"
+                if end_line is not None and actual_end < end_line:
+                    remaining_requested = end_line - actual_end
+                    result += f"... {remaining_requested} more lines in requested range (truncated by token limit) ...\n"
+                else:
+                    result += f"... {total_lines - actual_end} more lines in file ...\n"
+                result += f"Use read_log_range with start_line={actual_end + 1} to continue"
+
+            return [TextContent(type="text", text=result)]
+
+        except PermissionError:
+            return [TextContent(
+                type="text",
+                text=f"Permission denied reading: {log_file}"
+            )]
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error reading file: {e}"
             )]
 
     else:

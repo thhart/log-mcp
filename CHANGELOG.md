@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2] - 2025-12-08
+
+### Added
+- **`head_log` tool**: Reads the beginning of a log file (like Unix 'head' command) with token-based pagination
+  - `lines` parameter: specify exact number of lines to read
+  - `max_tokens` parameter: limit by token count (default: 4000)
+- **`tail_log` tool**: Reads the end of a log file (like Unix 'tail' command) with token-based pagination
+  - `lines` parameter: specify exact number of lines to read
+  - `max_tokens` parameter: limit by token count (default: 4000)
+- **`read_log_range` tool**: Reads a specific range of lines from a log file
+  - `start_line` and `end_line` parameters for precise range selection
+  - `max_tokens` parameter: limit by token count (default: 4000)
+- All tools show line numbers and file statistics
+
+### Rationale
+- Quick access to start or end of log files without full pagination setup
+- `tail_log` ideal for checking recent log entries during debugging
+- `read_log_range` enables reading arbitrary sections of log files
+- `lines` parameter provides Unix-like head/tail behavior
+- Consistent token-based approach across all tools
+
 ## [0.4.1] - 2025-12-08
 
 ### Added
