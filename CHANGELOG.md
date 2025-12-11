@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.6] - 2025-12-11
+
+### Changed
+- **Improved `list_log_files` description**: Now triggers when user says 'inspect', 'inspector', or 'logs'
+  - Better discoverability as entry point for log inspection workflows
+  - Clearer guidance that this tool should be used first before other inspection tools
+
+## [0.4.5] - 2025-12-10
+
+### Fixed
+- **Accurate `max_tokens` enforcement**: Token counting now includes all output overhead
+  - Header/metadata text is now counted in the token budget
+  - Line number prefixes (`{i:6d} | `) are now counted per line (~3 tokens each)
+  - Footer text is now reserved in the token budget
+  - Previously, requesting 15000 tokens could return ~16000+ tokens due to uncounted overhead
+  - Affected tools: `read_log_paginated`, `search_log_file`, `head_log`, `tail_log`, `read_log_range`, `find_errors`
+
 ## [0.4.4] - 2025-12-08
 
 ### Added

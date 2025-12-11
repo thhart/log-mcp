@@ -141,7 +141,7 @@ async def list_tools() -> list[Tool]:
     return [
         Tool(
             name="list_log_files",
-            description="Lists all log files in $XDG_RUNTIME_DIR/log. Use this FIRST when user reports errors or problems to see what logs are available for inspection.",
+            description="Lists all log files in $XDG_RUNTIME_DIR/log. Use this FIRST when user says 'inspect', 'inspector', 'logs', or reports errors/problems. This is the entry point for log inspection - discover available logs before using other tools.",
             inputSchema={
                 "type": "object",
                 "properties": {},
@@ -570,16 +570,23 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 else:
                     # Token-based mode (default)
                     # Estimate ~4 chars per token
+                    # Reserve tokens for header (~300 chars) and footer (~200 chars)
+                    header_reserve = 75  # ~300 chars / 4
+                    footer_reserve = 50  # ~200 chars / 4
+                    line_prefix_tokens = 3  # "{i:6d} | " = ~9 chars = ~2-3 tokens
+                    available_tokens = max_tokens - header_reserve - footer_reserve
+
                     lines = []
                     estimated_tokens = 0
                     current_idx = start_line - 1
 
-                    while current_idx < total_lines and estimated_tokens < max_tokens:
+                    while current_idx < total_lines and estimated_tokens < available_tokens:
                         line = all_lines[current_idx]
-                        line_tokens = len(line) // 4  # Rough estimation: 4 chars per token
+                        # Include line prefix in token count
+                        line_tokens = (len(line) // 4) + line_prefix_tokens
 
                         # Always include at least one line
-                        if lines or estimated_tokens + line_tokens <= max_tokens:
+                        if lines or estimated_tokens + line_tokens <= available_tokens:
                             lines.append(line)
                             estimated_tokens += line_tokens
                             current_idx += 1
@@ -587,7 +594,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             break
 
                     end_line = start_line - 1 + len(lines)
-                    mode_info = f"Token-based mode: ~{estimated_tokens} tokens (~{max_tokens} max)"
+                    total_estimated = estimated_tokens + header_reserve + footer_reserve
+                    mode_info = f"Token-based mode: ~{total_estimated} tokens (~{max_tokens} max)"
 
                 # Build result with file metadata
                 result = ""
@@ -757,6 +765,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     mode_info = f"Match-based mode: {len(paginated_matches)} matches"
                 else:
                     # Token-based mode (default)
+                    # Reserve tokens for header (~350 chars) and footer (~200 chars)
+                    header_reserve = 90  # ~350 chars / 4
+                    footer_reserve = 50  # ~200 chars / 4
+                    available_tokens = max_tokens - header_reserve - footer_reserve
+
                     # Estimate tokens for each match with its context
                     for match_idx in matches_to_process:
                         # Calculate context range
@@ -774,13 +787,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         match_tokens = len(match_text) // 4  # Rough estimation: 4 chars per token
 
                         # Always include at least one match
-                        if not paginated_matches or estimated_tokens + match_tokens <= max_tokens:
+                        if not paginated_matches or estimated_tokens + match_tokens <= available_tokens:
                             paginated_matches.append(match_idx)
                             estimated_tokens += match_tokens
                         else:
                             break
 
-                    mode_info = f"Token-based mode: ~{estimated_tokens} tokens (~{max_tokens} max)"
+                    total_estimated = estimated_tokens + header_reserve + footer_reserve
+                    mode_info = f"Token-based mode: ~{total_estimated} tokens (~{max_tokens} max)"
 
                 # Build result
                 result = f"File: {log_file}\n"
@@ -861,6 +875,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             file_size = log_file.stat().st_size
             total_lines = len(all_lines)
 
+            # Reserve tokens for header (~250 chars) and footer (~200 chars)
+            header_reserve = 65  # ~250 chars / 4
+            footer_reserve = 50  # ~200 chars / 4
+            line_prefix_tokens = 3  # "{i:6d} | " = ~9 chars = ~2-3 tokens
+            available_tokens = max_tokens - header_reserve - footer_reserve
+
             # Read lines from beginning
             lines = []
             estimated_tokens = 0
@@ -871,22 +891,23 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 if num_lines is not None and len(lines) >= num_lines:
                     truncated_by = "lines"
                     break
-                # Check token limit
-                line_tokens = len(line) // 4
-                if lines and estimated_tokens + line_tokens > max_tokens:
+                # Check token limit (include line prefix)
+                line_tokens = (len(line) // 4) + line_prefix_tokens
+                if lines and estimated_tokens + line_tokens > available_tokens:
                     truncated_by = "tokens"
                     break
                 lines.append(line)
                 estimated_tokens += line_tokens
 
             lines_read = len(lines)
+            total_estimated = estimated_tokens + header_reserve + footer_reserve
 
             result = f"Head of {log_file}\n"
             result += f"File size: {file_size} bytes, {total_lines} lines total\n"
             if num_lines is not None:
-                result += f"Showing: lines 1-{lines_read} (requested: {num_lines} lines, ~{estimated_tokens} tokens)\n"
+                result += f"Showing: lines 1-{lines_read} (requested: {num_lines} lines, ~{total_estimated} tokens)\n"
             else:
-                result += f"Showing: lines 1-{lines_read} (~{estimated_tokens} tokens)\n"
+                result += f"Showing: lines 1-{lines_read} (~{total_estimated} tokens)\n"
             result += f"\n{'=' * 60}\n\n"
 
             # Add line numbers
@@ -947,6 +968,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             file_size = log_file.stat().st_size
             total_lines = len(all_lines)
 
+            # Reserve tokens for header (~250 chars) and footer (~200 chars)
+            header_reserve = 65  # ~250 chars / 4
+            footer_reserve = 50  # ~200 chars / 4
+            line_prefix_tokens = 3  # "{i:6d} | " = ~9 chars = ~2-3 tokens
+            available_tokens = max_tokens - header_reserve - footer_reserve
+
             # Read lines from end
             lines = []
             estimated_tokens = 0
@@ -955,22 +982,23 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 # Check line limit first
                 if num_lines is not None and len(lines) >= num_lines:
                     break
-                # Check token limit
-                line_tokens = len(line) // 4
-                if lines and estimated_tokens + line_tokens > max_tokens:
+                # Check token limit (include line prefix)
+                line_tokens = (len(line) // 4) + line_prefix_tokens
+                if lines and estimated_tokens + line_tokens > available_tokens:
                     break
                 lines.insert(0, line)
                 estimated_tokens += line_tokens
 
             lines_read = len(lines)
             start_line = total_lines - lines_read + 1
+            total_estimated = estimated_tokens + header_reserve + footer_reserve
 
             result = f"Tail of {log_file}\n"
             result += f"File size: {file_size} bytes, {total_lines} lines total\n"
             if num_lines is not None:
-                result += f"Showing: lines {start_line}-{total_lines} (requested: {num_lines} lines, ~{estimated_tokens} tokens)\n"
+                result += f"Showing: lines {start_line}-{total_lines} (requested: {num_lines} lines, ~{total_estimated} tokens)\n"
             else:
-                result += f"Showing: lines {start_line}-{total_lines} (~{estimated_tokens} tokens)\n"
+                result += f"Showing: lines {start_line}-{total_lines} (~{total_estimated} tokens)\n"
             result += f"\n{'=' * 60}\n\n"
 
             # Add line numbers
@@ -1050,6 +1078,12 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     text=f"Error: start_line {start_line} exceeds file length ({total_lines} lines)"
                 )]
 
+            # Reserve tokens for header (~250 chars) and footer (~200 chars)
+            header_reserve = 65  # ~250 chars / 4
+            footer_reserve = 50  # ~200 chars / 4
+            line_prefix_tokens = 3  # "{i:6d} | " = ~9 chars = ~2-3 tokens
+            available_tokens = max_tokens - header_reserve - footer_reserve
+
             # Determine effective end line
             effective_end = end_line if end_line is not None else total_lines
             effective_end = min(effective_end, total_lines)
@@ -1061,20 +1095,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             for idx in range(start_line - 1, effective_end):
                 line = all_lines[idx]
-                line_tokens = len(line) // 4
-                if lines and estimated_tokens + line_tokens > max_tokens:
+                # Include line prefix in token count
+                line_tokens = (len(line) // 4) + line_prefix_tokens
+                if lines and estimated_tokens + line_tokens > available_tokens:
                     break
                 lines.append(line)
                 estimated_tokens += line_tokens
                 actual_end = idx + 1  # 1-based line number
 
             lines_read = len(lines)
+            total_estimated = estimated_tokens + header_reserve + footer_reserve
 
             result = f"Range from {log_file}\n"
             result += f"File size: {file_size} bytes, {total_lines} lines total\n"
             if end_line is not None:
                 result += f"Requested: lines {start_line}-{end_line}\n"
-            result += f"Showing: lines {start_line}-{actual_end} (~{estimated_tokens} tokens)\n"
+            result += f"Showing: lines {start_line}-{actual_end} (~{total_estimated} tokens)\n"
             result += f"\n{'=' * 60}\n\n"
 
             # Add line numbers
@@ -1201,13 +1237,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 )]
 
             # Build output with context, respecting token limit
+            # Reserve tokens for footer (~200 chars)
+            footer_reserve = 50  # ~200 chars / 4
+
             result = f"Errors in {log_file}\n"
             result += f"File size: {file_size} bytes, {total_lines} lines\n"
             result += f"Found {len(error_indices)} error lines" + (" (including warnings)" if include_warnings else "") + "\n"
             result += f"Context: {context_lines} lines before/after\n"
             result += f"\n{'=' * 60}\n\n"
 
-            estimated_tokens = len(result) // 4
+            # Count header tokens and reserve for footer
+            header_tokens = len(result) // 4
+            estimated_tokens = header_tokens
+            available_tokens = max_tokens - footer_reserve
             shown_errors = 0
             shown_indices = set()
 
@@ -1229,8 +1271,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 block += f"\n{'-' * 60}\n\n"
                 block_tokens = len(block) // 4
 
-                # Check token limit
-                if shown_errors > 0 and estimated_tokens + block_tokens > max_tokens:
+                # Check token limit (reserve space for footer)
+                if shown_errors > 0 and estimated_tokens + block_tokens > available_tokens:
                     remaining = len(error_indices) - shown_errors
                     result += f"... {remaining} more errors (token limit reached) ...\n"
                     result += f"Use search_log_file with specific patterns for more details"
